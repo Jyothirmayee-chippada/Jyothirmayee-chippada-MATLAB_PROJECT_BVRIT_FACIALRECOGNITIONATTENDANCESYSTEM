@@ -1,0 +1,56 @@
+clc;
+clear all;
+close all;
+warning off;
+
+% Load pre-trained network
+g = alexnet;
+layers = g.Layers;
+
+% Modify the last layers for face classification
+numClasses = 4; % No of persons
+layers(23) = fullyConnectedLayer(numClasses); 
+layers(25) = classificationLayer;
+
+% Load face detection model
+faceDetector = vision.CascadeObjectDetector;
+
+% Load and preprocess images
+allImages = imageDatastore('database', 'IncludeSubfolders', true, 'LabelSource', 'foldernames', ...
+    'ReadFcn', @(filename) preprocessFace(filename, faceDetector));
+
+% Split the data into training and validation sets
+[trainImages, valImages] = splitEachLabel(allImages, 0.8, 'randomize');
+
+% Training options
+opts = trainingOptions('sgdm', ...
+    'InitialLearnRate', 0.001, ...
+    'MaxEpochs', 20, ...
+    'MiniBatchSize', 64, ...
+    'ValidationData', valImages, ...
+    'ValidationFrequency', 30, ...
+    'Verbose', false, ...
+    'Plots', 'training-progress');
+
+% Train the network
+myNet1 = trainNetwork(trainImages, layers, opts);
+
+% Save the trained network
+save myNet1;
+
+% Function to preprocess images (detect and crop faces)
+function I = preprocessFace(filename, faceDetector)
+    I = imread(filename);
+    bboxes = step(faceDetector, I); % Detect faces
+    if ~isempty(bboxes)
+        % If multiple faces are detected, choose the largest one
+        [~, idx] = max(bboxes(:, 3) .* bboxes(:, 4));
+        face = imcrop(I, bboxes(idx, :)); % Crop the face
+        % Enhance facial features using histogram equalization
+        face = histeq(face);
+        I = imresize(face, [227 227]); % Resize to AlexNet input size
+    else
+        % If no face is detected, resize the whole image
+        I = imresize(I, [227 227]);
+    end
+end
